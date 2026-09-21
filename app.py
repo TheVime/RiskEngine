@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import altair as alt
 import numpy as np
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -291,20 +292,28 @@ with montecarlo_tab:
             sim_cols[2].metric("P95", f"{simulation['p95'] * 100:.2f}%")
             sim_cols[3].metric("Probabilità di perdita", f"{simulation['probability_loss'] * 100:.2f}%")
             st.caption(simulation["historical_source"])
-            distribution = pd.DataFrame(
-                {"Rendimento totale": simulation["portfolio_return_distribution"]}
+            distribution = simulation["portfolio_return_distribution"]
+            histogram_counts, histogram_edges = np.histogram(distribution, bins=30)
+            histogram_data = pd.DataFrame(
+                {
+                    "bin_start": histogram_edges[:-1],
+                    "bin_end": histogram_edges[1:],
+                    "bin_center": (histogram_edges[:-1] + histogram_edges[1:]) / 2,
+                    "occurrences": histogram_counts,
+                }
             )
-            histogram = alt.Chart(distribution).mark_bar().encode(
+            histogram = alt.Chart(histogram_data).mark_bar().encode(
                 x=alt.X(
-                    "Rendimento totale:Q",
-                    bin=alt.Bin(maxbins=30),
+                    "bin_start:Q",
                     title="Rendimento totale",
                     axis=alt.Axis(format=".2f"),
                 ),
-                y=alt.Y("count():Q", title="Occorrenze"),
+                x2="bin_end:Q",
+                y=alt.Y("occurrences:Q", title="Occorrenze", axis=alt.Axis(format="d")),
                 tooltip=[
-                    alt.Tooltip("Rendimento totale:Q", title="Rendimento", format=".2f"),
-                    alt.Tooltip("count():Q", title="Occorrenze", format=".2f"),
+                    alt.Tooltip("bin_start:Q", title="Da", format=".2f"),
+                    alt.Tooltip("bin_end:Q", title="A", format=".2f"),
+                    alt.Tooltip("occurrences:Q", title="Occorrenze", format="d"),
                 ],
             ).properties(height=360)
             st.altair_chart(histogram, width="stretch")
