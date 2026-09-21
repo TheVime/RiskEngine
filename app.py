@@ -129,6 +129,9 @@ except ValueError as exc:
 
 summary = portfolio
 risk_df = summary["asset_risk_contribution"].copy()
+risk_df["ticker"] = risk_df["name"].map(
+    st.session_state.assets.set_index("name")["ticker"].to_dict()
+).fillna("")
 risk_df["weight"] = (risk_df["weight"] * 100).round(2)
 risk_df["risk_contribution_pct"] = risk_df["risk_contribution_pct"].round(2)
 risk_df["expected_return"] = (risk_df["expected_return"] * 100).round(2)
