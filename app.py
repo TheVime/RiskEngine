@@ -302,17 +302,22 @@ with montecarlo_tab:
                     "occurrences": histogram_counts,
                 }
             )
-            histogram = alt.Chart(histogram_data).mark_bar().encode(
-                x=alt.X(
-                    "bin_start:Q",
-                    title="Rendimento totale",
-                    axis=alt.Axis(format=".2f"),
+            histogram_data["interval"] = histogram_data.apply(
+                lambda row: (
+                    f"{row['bin_start'] * 100:.2f}% - "
+                    f"{row['bin_end'] * 100:.2f}%"
                 ),
-                x2="bin_end:Q",
+                axis=1,
+            )
+            histogram = alt.Chart(histogram_data).mark_bar(size=22).encode(
+                x=alt.X(
+                    "bin_center:Q",
+                    title="Rendimento totale",
+                    axis=alt.Axis(format=".2%"),
+                ),
                 y=alt.Y("occurrences:Q", title="Occorrenze", axis=alt.Axis(format="d")),
                 tooltip=[
-                    alt.Tooltip("bin_start:Q", title="Da", format=".2f"),
-                    alt.Tooltip("bin_end:Q", title="A", format=".2f"),
+                    alt.Tooltip("interval:N", title="Intervallo"),
                     alt.Tooltip("occurrences:Q", title="Occorrenze", format="d"),
                 ],
             ).properties(height=360)
