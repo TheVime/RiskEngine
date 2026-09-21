@@ -182,16 +182,20 @@ with dashboard_tab:
         with chart_col:
             with st.container(border=True):
                 st.markdown("**Allocazione per asset**")
-                allocation = risk_df[["name", "value"]].rename(columns={"name": "Asset", "value": "Valore"})
+                allocation = st.session_state.assets[["name", "value"]].copy()
+                allocation["value"] = pd.to_numeric(allocation["value"], errors="coerce").fillna(0.0)
+                allocation = allocation[allocation["value"] > 0].rename(
+                    columns={"name": "asset", "value": "value_eur"}
+                )
                 pie = alt.Chart(allocation).mark_arc(innerRadius=45).encode(
-                    theta=alt.Theta("Valore:Q"),
-                    color=alt.Color("Asset:N", legend=alt.Legend(title=None)),
+                    theta=alt.Theta("value_eur:Q", title="Valore"),
+                    color=alt.Color("asset:N", legend=alt.Legend(title=None)),
                     tooltip=[
-                        alt.Tooltip("Asset:N"),
-                        alt.Tooltip("Valore:Q", format="€,.0f"),
+                        alt.Tooltip("asset:N", title="Asset"),
+                        alt.Tooltip("value_eur:Q", title="Valore (€)", format=",.0f"),
                     ],
                 ).properties(height=360)
-                st.altair_chart(pie, width="stretch")
+                st.altair_chart(pie, width="stretch", theme=None)
         with table_col:
             with st.container(border=True):
                 st.markdown("**Asset nel portafoglio**")
