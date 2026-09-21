@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -19,6 +20,16 @@ st.set_page_config(
     layout="wide",
     menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
+
+
+@st.cache_data(ttl="15m", max_entries=8, show_spinner=False)
+def run_cached_simulation(
+    assets: pd.DataFrame, scenarios: int, horizon_days: int, seed: int
+) -> dict:
+    """Cache identical simulations so reruns do not repeat the same calculation."""
+    return simulate_portfolio_scenarios(
+        assets, scenarios=scenarios, horizon_days=horizon_days, seed=seed
+    )
 
 
 ASSET_COLUMNS = {
@@ -128,7 +139,8 @@ except ValueError as exc:
 
 
 summary = portfolio
-risk_df = summary["asset_risk_contribution"].copy()
+risk_calculation_df = summary["asset_risk_contribution"].copy()
+risk_df = risk_calculation_df.copy()
 risk_df["ticker"] = risk_df["name"].map(
     st.session_state.assets.set_index("name")["ticker"].to_dict()
 ).fillna("")
@@ -168,6 +180,42 @@ def render_risk_advice() -> None:
     st.caption(advice.get(summary["risk_level"], "La concentrazione e la volatilità rendono il portafoglio vulnerabile agli shock di mercato."))
 
 
+def render_risk_formula() -> None:
+    if risk_calculation_df.empty:
+        st.info("Inserisci almeno un asset per visualizzare il calcolo.")
+        return
+
+    weights = risk_calculation_df["weight"].to_numpy(dtype=float)
+    volatilities = risk_calculation_df["volatility"].to_numpy(dtype=float)
+    variance = sum(
+        weights[i] * weights[j] * volatilities[i] * volatilities[j]
+        * (1.0 if i == j else avg_correlation)
+        for i in range(len(weights))
+        for j in range(len(weights))
+    )
+
+    st.markdown("**Formula utilizzata**")
+    st.latex(r"\sigma_p = \sqrt{\sum_i\sum_j w_i w_j \sigma_i \sigma_j \rho_{ij}}")
+    st.caption("La volatilità combina peso, volatilità di ogni asset e correlazione media.")
+    formula_table = risk_calculation_df[["name", "weight", "volatility"]].copy()
+    formula_table["weight"] = (formula_table["weight"] * 100).round(2).map(lambda value: f"{value:.2f}%")
+    formula_table["volatility"] = (formula_table["volatility"] * 100).round(2).map(lambda value: f"{value:.2f}%")
+    st.dataframe(
+        formula_table.rename(columns={"name": "Asset", "weight": "Peso", "volatility": "Volatilità"}),
+        hide_index=True,
+        width="stretch",
+    )
+    formula_cols = st.columns(3)
+    formula_cols[0].metric("Varianza", f"{variance:.2f}")
+    formula_cols[1].metric("Volatilità calcolata", f"{np.sqrt(max(variance, 0.0)) * 100:.2f}%")
+    formula_cols[2].metric("Correlazione media", f"{avg_correlation:.2f}")
+    st.latex(r"\text{Score} = \min(100,\max(0, 1.6 \times \sigma_p(\%) + 15 \times \beta_p))")
+    st.caption(
+        f"Score = 1,6 × {summary['volatility'] * 100:.2f} + 15 × {summary['beta']:.2f} "
+        f"= {summary['risk_score']:.2f}/100. Sharpe = {summary['sharpe']:.2f}."
+    )
+
+
 dashboard_tab, montecarlo_tab, risk_tab = st.tabs(
     ["Dashboard", "Simulazione Monte Carlo", "Rischio del portafoglio"]
 )
@@ -184,15 +232,19 @@ with dashboard_tab:
                 st.markdown("**Allocazione per asset**")
                 allocation = st.session_state.assets[["name", "value"]].copy()
                 allocation["value"] = pd.to_numeric(allocation["value"], errors="coerce").fillna(0.0)
+                allocation["value"] = allocation["value"].round(2)
                 allocation = allocation[allocation["value"] > 0].rename(
                     columns={"name": "asset", "value": "value_eur"}
                 )
-                pie = alt.Chart(allocation).mark_arc(innerRadius=45).encode(
+                pie = alt.Chart(allocation).mark_arc(innerRadius=105).encode(
                     theta=alt.Theta("value_eur:Q", title="Valore"),
-                    color=alt.Color("asset:N", legend=alt.Legend(title=None)),
+                    color=alt.Color(
+                        "asset:N",
+                        legend=alt.Legend(title=None, labelLimit=0, columns=1),
+                    ),
                     tooltip=[
                         alt.Tooltip("asset:N", title="Asset"),
-                        alt.Tooltip("value_eur:Q", title="Valore (€)", format=",.0f"),
+                        alt.Tooltip("value_eur:Q", title="Valore (€)", format=",.2f"),
                     ],
                 ).properties(height=360)
                 st.altair_chart(pie, width="stretch", theme=None)
@@ -223,7 +275,7 @@ with montecarlo_tab:
     if st.button(f"Simula {scenario_count:,} scenari", type="primary"):
         with st.status("Calcolo degli scenari in corso...", expanded=False) as status:
             try:
-                simulation = simulate_portfolio_scenarios(
+                simulation = run_cached_simulation(
                     st.session_state.assets, scenarios=scenario_count, horizon_days=252, seed=42
                 )
                 status.update(label="Simulazione completata", state="complete")
@@ -243,14 +295,23 @@ with montecarlo_tab:
                 {"Rendimento totale": simulation["portfolio_return_distribution"]}
             )
             histogram = alt.Chart(distribution).mark_bar().encode(
-                x=alt.X("Rendimento totale:Q", bin=alt.Bin(maxbins=30), title="Rendimento totale"),
+                x=alt.X(
+                    "Rendimento totale:Q",
+                    bin=alt.Bin(maxbins=30),
+                    title="Rendimento totale",
+                    axis=alt.Axis(format=".2f"),
+                ),
                 y=alt.Y("count():Q", title="Occorrenze"),
-                tooltip=[alt.Tooltip("count():Q", title="Occorrenze")],
+                tooltip=[
+                    alt.Tooltip("Rendimento totale:Q", title="Rendimento", format=".2f"),
+                    alt.Tooltip("count():Q", title="Occorrenze", format=".2f"),
+                ],
             ).properties(height=360)
             st.altair_chart(histogram, width="stretch")
 
 with risk_tab:
     render_kpis()
+    render_risk_formula()
     st.subheader("Profilo e consigli")
     render_risk_advice()
 
@@ -274,9 +335,16 @@ with risk_tab:
             risk_df.rename(columns={"name": "Asset", "risk_contribution_pct": "Contributo al rischio (%)"})
         ).mark_bar().encode(
             x=alt.X("Asset:N", sort="-y", title="Asset"),
-            y=alt.Y("Contributo al rischio (%):Q", title="Contributo al rischio (%)"),
+            y=alt.Y(
+                "Contributo al rischio (%):Q",
+                title="Contributo al rischio (%)",
+                axis=alt.Axis(format=".2f"),
+            ),
             color=alt.Color("Asset:N", legend=None),
-            tooltip=["Asset:N", "Contributo al rischio (%):Q"],
+            tooltip=[
+                "Asset:N",
+                alt.Tooltip("Contributo al rischio (%):Q", format=".2f"),
+            ],
         ).properties(height=320)
         st.altair_chart(risk_chart, width="stretch")
 
@@ -348,13 +416,27 @@ with risk_tab:
         result_cols[3].metric("Rendimento reale", f"{compound_result['inflation_adjusted_rate'] * 100:.2f}%")
         annual_df = pd.DataFrame(compound_result["yearly_history"])
         if not annual_df.empty:
-            annual_chart = alt.Chart(annual_df).transform_fold(
-                fold=["nominal_value", "real_value_after_inflation"],
-                as_=["serie", "valore"],
-            ).mark_line(point=True, strokeWidth=2).encode(
-                x=alt.X("year:Q", title="Anno"),
-                y=alt.Y("valore:Q", title="Valore (€)"),
+            annual_chart_data = annual_df.melt(
+                id_vars=["year"],
+                value_vars=["nominal_value", "real_value_after_inflation"],
+                var_name="serie",
+                value_name="valore",
+            )
+            annual_chart_data["valore"] = annual_chart_data["valore"].round(2)
+            annual_chart_data["serie"] = annual_chart_data["serie"].map(
+                {
+                    "nominal_value": "Valore nominale",
+                    "real_value_after_inflation": "Valore reale dopo inflazione",
+                }
+            )
+            annual_chart = alt.Chart(annual_chart_data).mark_line(point=True, strokeWidth=2).encode(
+                x=alt.X("year:Q", title="Anno", axis=alt.Axis(format="d")),
+                y=alt.Y("valore:Q", title="Valore (€)", axis=alt.Axis(format=".2f")),
                 color=alt.Color("serie:N", title=None),
-                tooltip=["year:Q", "serie:N", "valore:Q"],
+                tooltip=[
+                    alt.Tooltip("year:Q", title="Anno", format="d"),
+                    alt.Tooltip("serie:N", title="Serie"),
+                    alt.Tooltip("valore:Q", title="Valore (€)", format=".2f"),
+                ],
             ).properties(height=320)
             st.altair_chart(annual_chart, width="stretch")

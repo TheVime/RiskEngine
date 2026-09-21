@@ -295,30 +295,28 @@ def simulate_portfolio_scenarios(
             historical_returns[ticker] = sample.astype(float)
 
     rng = np.random.default_rng(seed)
-    scenario_results = np.empty(scenarios, dtype=float)
+    scenario_returns = np.zeros((scenarios, horizon_days), dtype=float)
+    weight_values = weights.to_numpy(dtype=float)
 
-    for scenario_index in range(scenarios):
-        cumulative_value = 1.0
-        for _ in range(horizon_days):
-            daily_returns = []
-            for _, row in df.iterrows():
-                ticker = str(row["ticker"]).strip().upper()
-                if ticker and ticker in historical_returns and not historical_returns[ticker].empty:
-                    sample = historical_returns[ticker]
-                    daily_return = float(sample.sample(n=1, replace=True).iloc[0])
-                else:
-                    daily_return = float(
-                        np.clip(
-                            rng.normal(loc=float(row["expected_return"]), scale=max(float(row["volatility"]), 0.01)),
-                            -0.75,
-                            0.75,
-                        )
-                    )
-                daily_returns.append(daily_return)
+    # Generate each asset's full scenario matrix with NumPy, then aggregate
+    # assets and days in vectorized operations instead of nested Python loops.
+    for asset_index, (_, row) in enumerate(df.iterrows()):
+        ticker = str(row["ticker"]).strip().upper()
+        if ticker and ticker in historical_returns and not historical_returns[ticker].empty:
+            sample_values = historical_returns[ticker].to_numpy(dtype=float)
+            sampled_indexes = rng.integers(0, len(sample_values), size=(scenarios, horizon_days))
+            asset_returns = sample_values[sampled_indexes]
+        else:
+            asset_returns = rng.normal(
+                loc=float(row["expected_return"]),
+                scale=max(float(row["volatility"]), 0.01),
+                size=(scenarios, horizon_days),
+            )
+            asset_returns = np.clip(asset_returns, -0.75, 0.75)
 
-            cumulative_value *= 1.0 + float(np.dot(weights.to_numpy(dtype=float), np.asarray(daily_returns, dtype=float)))
+        scenario_returns += weight_values[asset_index] * asset_returns
 
-        scenario_results[scenario_index] = cumulative_value - 1.0
+    scenario_results = np.prod(1.0 + scenario_returns, axis=1) - 1.0
 
     summary = {
         "portfolio_value": total_value,
