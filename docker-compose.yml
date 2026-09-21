@@ -2,8 +2,10 @@ version: "3.9"
 
 services:
   riskengine:
+    image: riskengine:github
     build:
-      context: .
+      context: https://github.com/TheVime/RiskEngine.git#main
+      dockerfile: Dockerfile
     container_name: riskengine
     ports:
       - "8501:8501"

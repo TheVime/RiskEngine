@@ -1,46 +1,92 @@
 # RiskEngine
 
-RiskEngine is a lightweight portfolio risk analysis app for investment assets.
+RiskEngine is a lightweight Streamlit application for analysing investment portfolio risk.
 
-Features:
-- Add or edit assets with value, ticker, expected return, volatility, and beta
-- Search and add assets by European ISIN (ETF and other listed instruments)
-- Calculate portfolio value, expected return, total volatility, beta, and Sharpe ratio
-- Show the risk contribution of each asset
-- Analyse bond duration (Macaulay and modified) and approximate YTM
+## Features
+
+- Add and edit assets with value, ticker, expected return, volatility and beta
+- Search for and add European ETFs and other listed instruments by ISIN
+- Calculate portfolio value, expected return, volatility, beta and Sharpe ratio
+- Display each asset's contribution to portfolio risk
+- Estimate bond yield to maturity, Macaulay duration, modified duration and convexity
 - Simulate compound growth adjusted for inflation and taxes
-- Simulate 10,000 scenarios using real historical daily returns from Yahoo Finance
+- Run historical portfolio scenarios using real daily market data from Yahoo Finance
 
-Quick start (local):
-1. Install Python 3.11 or newer.
-2. Clone the repository and open a terminal in the project directory.
-3. Create a virtual environment:
-   - Windows PowerShell:
-     `cd C:\percorso\RiskEngine`
-     `python -m venv .venv`
-   - Ubuntu/macOS: `python3 -m venv .venv`
-4. Activate the virtual environment:
-   - Windows PowerShell: `.\\.venv\\Scripts\\Activate.ps1`
-   - Ubuntu/macOS: `source .venv/bin/activate`
-5. Install the dependencies: `python -m pip install -r requirements.txt`
-6. Start the app: `python -m streamlit run app.py`
-7. Open http://localhost:8501 in your browser.
+## Run locally
 
-Il file si chiama **`requirements.txt`** (con la `s` finale). Se PowerShell segnala
-che il file non esiste, verifica di essere nella cartella del progetto con
-`Get-Location` e usa `Get-ChildItem requirements.txt`.
-Se compare un errore `ModuleNotFoundError`, assicurati di aver attivato `.venv` e
-ripeti `python -m pip install -r requirements.txt`; avvia poi Streamlit con lo
-stesso interprete usando `python -m streamlit run app.py`.
+Install Python 3.11 or newer, clone the repository and open a terminal in the project directory.
 
-On Ubuntu, if `venv` is not available, install it first with
-`sudo apt update && sudo apt install -y python3-venv`.
+### Windows PowerShell
 
-Docker quick start:
-1. docker build -t riskengine .
-2. docker run -d --name riskengine -p 8501:8501 riskengine
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
 
-Or with Docker Compose:
-1. docker compose up --build -d
+### Ubuntu or macOS
 
-The app opens a browser window where you can insert your assets and review the resulting portfolio risk profile. The scenario simulation is based on historical market data for the selected tickers, resampled to generate 10,000 realistic outcomes.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+Open http://localhost:8501 in your browser.
+
+If Ubuntu does not provide the virtual-environment module, install it first:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv
+```
+
+## Run with Docker
+
+### Build from a local checkout
+
+```bash
+docker build -t riskengine .
+docker run -d \
+  --name riskengine \
+  --restart unless-stopped \
+  -p 8501:8501 \
+  riskengine
+```
+
+### Build automatically from GitHub with Docker Compose
+
+From any directory containing the `docker-compose.yml` file:
+
+```bash
+docker compose up --build -d
+```
+
+The Compose configuration uses `https://github.com/TheVime/RiskEngine.git#main`
+as its build context. Docker therefore downloads the latest `main` branch before
+building the image. The application is then available at:
+
+```text
+http://localhost:8501
+```
+
+The Compose setup also:
+
+- restarts the container automatically unless it is manually stopped
+- exposes port `8501`
+- stores the `/data` volume in a persistent Docker volume named `riskengine_data`
+
+Useful Compose commands:
+
+```bash
+docker compose logs -f
+docker compose ps
+docker compose restart
+docker compose down
+```
+
+The application uses historical market data when available. Yahoo Finance can
+occasionally rate-limit or fail to identify an instrument; in that case the app
+uses its configured fallback logic or the assumptions entered by the user.
