@@ -1,7 +1,28 @@
 from __future__ import annotations
 
+"""
+CHANGELOG
+---------
+v1.1 - 2026-09-22
+    - Tema scuro applicato via .streamlit/config.toml (vedi quel file per
+      i colori) invece che con CSS custom, cosi' i colori restano coerenti
+      anche nei widget nativi di Streamlit e nei grafici Altair (che
+      ereditano automaticamente la palette del tema quando non si passa
+      theme=None a st.altair_chart). Vedi:
+      https://docs.streamlit.io/develop/concepts/configuration/theming
+    - Aggiunto render_risk_gauge(): gauge circolare del punteggio di
+      rischio (0-100), colorato in base alla fascia di rischio, per dare
+      un colpo d'occhio immediato oltre al testo di render_risk_advice().
+    - Aggiunta sezione "Frontiera efficiente (simulata)" nel tab Rischio:
+      nuvola di portafogli generati con simulate_efficient_frontier() e
+      marcatore del portafoglio attuale, per confrontare visivamente
+      rischio/rendimento con altre allocazioni possibili sugli stessi asset.
+    - CHART_PALETTE centralizza i colori categoriali usati nei grafici che
+      impostano esplicitamente theme=None (es. il donut di allocazione),
+      cosi' restano coerenti con chartCategoricalColors del tema anche li'.
+"""
+
 import altair as alt
-import numpy as np
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -11,6 +32,7 @@ from risk_engine import (
     calculate_portfolio_metrics,
     lookup_isin_to_asset,
     simulate_compound_growth,
+    simulate_efficient_frontier,
     simulate_portfolio_scenarios,
 )
 
@@ -21,6 +43,26 @@ st.set_page_config(
     layout="wide",
     menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
+
+# Stessa palette di theme.chartCategoricalColors in .streamlit/config.toml.
+# Tenerle sincronizzate manualmente: i grafici con theme=None (vedi il donut
+# di allocazione qui sotto) non ereditano il tema nativo di Streamlit, quindi
+# la palette va passata esplicitamente per restare coerenti col resto della UI.
+CHART_PALETTE = [
+    "#5B8DEF", "#00C2A8", "#F2A93B", "#F25F5C",
+    "#9B5DE5", "#4C6EF5", "#2ED9C3", "#FFD166",
+]
+
+# Colori per fascia di rischio (usati dal gauge e in futuro da altri
+# elementi), coerenti con i colori semantici già usati da
+# st.success/info/warning/error in render_risk_advice().
+RISK_BAND_COLORS = {
+    "Nessun asset": "#4B5563",
+    "Basso": "#22C55E",
+    "Moderato": "#38BDF8",
+    "Elevato": "#F2A93B",
+    "Molto elevato": "#F25F5C",
+}
 
 
 @st.cache_data(ttl="15m", max_entries=8, show_spinner=False)
@@ -169,6 +211,44 @@ def render_kpis() -> None:
         st.metric("Sharpe", f"{summary['sharpe']:.2f}", border=True)
 
 
+def render_risk_gauge() -> None:
+    """Gauge circolare (donut) del punteggio di rischio 0-100.
+
+    Implementato come due fette di un mark_arc: una colorata (score) e una
+    "resto" a bassa visibilità che riempie il cerchio fino a 100. Il numero
+    non è disegnato nel grafico (per evitare la complessità di sovrapporre
+    due chart Altair con st.altair_chart) ma renderizzato a fianco con
+    st.markdown. Per il pattern del donut/arc in Altair, vedi la sezione
+    "Radial chart" della documentazione: https://altair-viz.github.io/gallery/radial_chart.html
+    """
+    score = float(summary["risk_score"])
+    color = RISK_BAND_COLORS.get(summary["risk_level"], "#4B5563")
+
+    gauge_data = pd.DataFrame(
+        {"category": ["Rischio", "Resto"], "value": [score, max(100.0 - score, 0.0)]}
+    )
+    base = alt.Chart(gauge_data).encode(
+        theta=alt.Theta("value:Q", stack=True, sort=None),
+        order=alt.Order("value:Q", sort="descending"),
+    )
+    arc = base.mark_arc(innerRadius=62, outerRadius=90, cornerRadius=6).encode(
+        color=alt.Color(
+            "category:N",
+            scale=alt.Scale(domain=["Rischio", "Resto"], range=[color, "#262B36"]),
+            legend=None,
+        ),
+        tooltip=alt.value(None),
+    )
+    gauge = arc.properties(height=200, width=200)
+
+    gauge_col, label_col = st.columns([1, 2])
+    with gauge_col:
+        st.altair_chart(gauge, width="content", theme=None)
+    with label_col:
+        st.markdown(f"### {score:.0f}<span style='color:#9AA1AE; font-size:1rem;'>/100</span>", unsafe_allow_html=True)
+        st.caption(f"Livello di rischio: **{summary['risk_level']}**")
+
+
 def render_risk_advice() -> None:
     risk_text = (
         f"Livello di rischio: {summary['risk_level']} | "
@@ -251,6 +331,7 @@ with dashboard_tab:
                     theta=alt.Theta("value_eur:Q", title="Valore"),
                     color=alt.Color(
                         "asset:N",
+                        scale=alt.Scale(range=CHART_PALETTE),
                         legend=alt.Legend(title=None, labelLimit=0, columns=1),
                     ),
                     tooltip=[
@@ -335,9 +416,10 @@ with montecarlo_tab:
 
 with risk_tab:
     render_kpis()
-    render_risk_formula()
     st.subheader("Profilo e consigli")
+    render_risk_gauge()
     render_risk_advice()
+    render_risk_formula()
 
     if not risk_df.empty:
         st.subheader("Contributo al rischio per asset")
@@ -380,6 +462,61 @@ with risk_tab:
                 f"Esposizione complessiva: {nr['portfolio_exposure'] * 100:.1f}% | "
                 f"Impatto stimato: {nr['stressed_loss_if_realized'] * 100:.1f}%"
             )
+
+    with st.expander("Frontiera efficiente (simulata)", expanded=False):
+        st.caption(
+            "Nuvola di portafogli generati con pesi casuali sugli stessi asset in portafoglio, "
+            "per confrontare rischio e rendimento con l'allocazione attuale (diamante rosso)."
+        )
+        if len(st.session_state.assets) < 2:
+            st.info("Servono almeno due asset per generare la frontiera efficiente.")
+        else:
+            frontier_scenarios = st.slider(
+                "Numero di portafogli simulati", 500, 8000, 3000, 500, key="frontier_scenarios"
+            )
+            frontier = simulate_efficient_frontier(
+                st.session_state.assets,
+                risk_free_rate=risk_free_rate,
+                avg_correlation=avg_correlation,
+                num_portfolios=frontier_scenarios,
+            )
+            if frontier.empty:
+                st.info("Non è stato possibile generare la frontiera con i dati correnti.")
+            else:
+                current_point = pd.DataFrame(
+                    {
+                        "expected_return": [summary["expected_return"]],
+                        "volatility": [summary["volatility"]],
+                        "label": ["Portafoglio attuale"],
+                    }
+                )
+                cloud = alt.Chart(frontier).mark_circle(opacity=0.35, size=28).encode(
+                    x=alt.X("volatility:Q", title="Volatilità", axis=alt.Axis(format=".1%")),
+                    y=alt.Y("expected_return:Q", title="Rendimento atteso", axis=alt.Axis(format=".1%")),
+                    color=alt.Color("sharpe:Q", title="Sharpe", scale=alt.Scale(scheme="turbo")),
+                    tooltip=[
+                        alt.Tooltip("expected_return:Q", title="Rendimento", format=".2%"),
+                        alt.Tooltip("volatility:Q", title="Volatilità", format=".2%"),
+                        alt.Tooltip("sharpe:Q", title="Sharpe", format=".2f"),
+                    ],
+                )
+                current_marker = alt.Chart(current_point).mark_point(
+                    shape="diamond", size=240, filled=True, color="#F25F5C", stroke="white", strokeWidth=1.5
+                ).encode(
+                    x="volatility:Q",
+                    y="expected_return:Q",
+                    tooltip=[
+                        alt.Tooltip("label:N", title=""),
+                        alt.Tooltip("expected_return:Q", title="Rendimento", format=".2%"),
+                        alt.Tooltip("volatility:Q", title="Volatilità", format=".2%"),
+                    ],
+                )
+                frontier_chart = (cloud + current_marker).properties(height=380).interactive()
+                st.altair_chart(frontier_chart, width="stretch")
+                st.caption(
+                    "Punti più in alto a sinistra = rendimento maggiore a parità (o minore) di rischio. "
+                    "Nota: è una nuvola campionata, non l'ottimo matematico di Markowitz."
+                )
 
     with st.expander("Analisi obbligazioni", expanded=False):
         bond_col1, bond_col2, bond_col3 = st.columns(3)

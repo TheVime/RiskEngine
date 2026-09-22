@@ -8,6 +8,7 @@ from risk_engine import (
     calculate_portfolio_metrics,
     lookup_isin_to_asset,
     simulate_compound_growth,
+    simulate_efficient_frontier,
     simulate_portfolio_scenarios,
 )
 
@@ -209,6 +210,41 @@ def test_portfolio_metrics_without_narrative_scenario_is_unchanged():
 
     result = calculate_portfolio_metrics(assets)
     assert result["narrative_risk"] is None
+
+
+def test_efficient_frontier_returns_one_row_per_portfolio():
+    assets = [
+        {"name": "ETF", "value": 60000, "expected_return": 8.0, "volatility": 12.0},
+        {"name": "Bond", "value": 40000, "expected_return": 3.0, "volatility": 5.0},
+    ]
+
+    frontier = simulate_efficient_frontier(assets, num_portfolios=500, seed=1)
+
+    assert len(frontier) == 500
+    assert (frontier["volatility"] >= 0.0).all()
+    # Con solo due asset (rendimenti 3% e 8%), nessun portafoglio pesato
+    # positivamente può avere un rendimento fuori da questo intervallo.
+    assert frontier["expected_return"].between(0.03, 0.08).all()
+
+
+def test_efficient_frontier_is_reproducible_with_same_seed():
+    assets = [
+        {"name": "ETF", "value": 60000, "expected_return": 8.0, "volatility": 12.0},
+        {"name": "Bond", "value": 40000, "expected_return": 3.0, "volatility": 5.0},
+    ]
+
+    first = simulate_efficient_frontier(assets, num_portfolios=100, seed=7)
+    second = simulate_efficient_frontier(assets, num_portfolios=100, seed=7)
+
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_efficient_frontier_needs_at_least_two_assets():
+    result = simulate_efficient_frontier(
+        [{"name": "ETF", "value": 60000, "expected_return": 8.0, "volatility": 12.0}]
+    )
+
+    assert result.empty
 
 
 def test_bond_metrics_and_compound_growth_are_reasonable():
