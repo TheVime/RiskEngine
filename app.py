@@ -141,10 +141,20 @@ except ValueError as exc:
 
 summary = portfolio
 risk_calculation_df = summary["asset_risk_contribution"].copy()
+asset_lookup = st.session_state.assets[["name", "ticker"]].copy()
+asset_lookup["ticker"] = asset_lookup["ticker"].fillna("").astype(str).str.strip()
+
 risk_df = risk_calculation_df.copy()
-risk_df["ticker"] = risk_df["name"].map(
-    st.session_state.assets.set_index("name")["ticker"].to_dict()
-).fillna("")
+if "ticker" not in risk_df.columns:
+    risk_df["ticker"] = ""
+
+risk_df = risk_df.merge(asset_lookup, on="name", how="left")
+if "ticker_x" in risk_df.columns and "ticker_y" in risk_df.columns:
+    risk_df["ticker"] = risk_df["ticker_y"].fillna(risk_df["ticker_x"]).fillna("")
+    risk_df = risk_df.drop(columns=["ticker_x", "ticker_y"])
+else:
+    risk_df["ticker"] = risk_df.get("ticker", "").fillna("")
+
 risk_df["weight"] = (risk_df["weight"] * 100).round(2)
 risk_df["risk_contribution_pct"] = risk_df["risk_contribution_pct"].round(2)
 risk_df["expected_return"] = (risk_df["expected_return"] * 100).round(2)
