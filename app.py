@@ -34,6 +34,17 @@ from __future__ import annotations
 #       solo spinti più in basso da questo blocco di testo indesiderato.
 #       Ora è un commento `#`, quindi non viene mai eseguito né mostrato.
 #       Doc ufficiale sulla magic: https://docs.streamlit.io/develop/api-reference/write-magic/magic
+# v1.2 - 2026-09-22
+#     - Ridisegnato il tab Dashboard in stile "card" (ispirato a una
+#       dashboard di net worth): render_hero_card() mostra il valore totale
+#       in grande con il rendimento atteso come delta colorato (verde/rosso);
+#       render_allocation_card() sostituisce il vecchio donut + tabella con
+#       una barra orizzontale segmentata (mark_bar impilato), una riga di
+#       legenda con pallino colorato per asset, e una tabella con una mini
+#       progress bar sul peso (st.column_config.ProgressColumn).
+#     - Nota: niente linea di trend nella hero card. RiskEngine non tiene
+#       uno storico di valore nel tempo (non è un tracker di transazioni),
+#       quindi disegnare un trend sarebbe stato inventare dati.
 
 import altair as alt
 import numpy as np
@@ -214,6 +225,89 @@ def render_kpis() -> None:
         st.metric("Sharpe", f"{summary['sharpe']:.2f}", border=True)
 
 
+def render_hero_card() -> None:
+    """Card "hero" in stile dashboard di net worth: valore totale in grande +
+    rendimento atteso colorato come delta, dentro un container con bordo
+    (che eredita l'angolo arrotondato da theme.baseRadius nel config.toml).
+
+    A differenza di una dashboard di net worth reale (es. l'app "Maybe" da
+    cui è preso lo stile), qui non esiste uno storico di valore nel tempo —
+    RiskEngine calcola metriche sullo stato attuale del portafoglio, non
+    tiene un registro di transazioni. Per questo non disegniamo una linea di
+    trend: mostrarne una inventata sarebbe fuorviante. Doc su st.container:
+    https://docs.streamlit.io/develop/api-reference/layout/st.container
+    """
+    delta = summary["expected_return"] * 100
+    delta_color = "#22C55E" if delta >= 0 else "#F25F5C"
+    with st.container(border=True):
+        st.caption("Valore totale del portafoglio")
+        st.markdown(f"## € {summary['portfolio_value']:,.0f}")
+        st.markdown(
+            f"<span style='color:{delta_color}; font-weight:600;'>"
+            f"{delta:+.2f}% rendimento atteso</span>"
+            f"<span style='color:#9AA1AE;'> · Sharpe {summary['sharpe']:.2f} · "
+            f"Volatilità {summary['volatility'] * 100:.2f}%</span>",
+            unsafe_allow_html=True,
+        )
+
+
+def render_allocation_card() -> None:
+    """Card di allocazione in stile "Assets" della dashboard di riferimento:
+    una barra orizzontale segmentata (un mark_bar impilato su una sola riga)
+    al posto del donut, una riga di legenda con pallino colorato + percentuale
+    per asset, e una tabella con una mini progress bar per il peso — ottenuta
+    con st.column_config.ProgressColumn, che disegna nativamente una barra
+    proporzionale nella cella senza dover generare immagini o HTML custom.
+    Doc: https://docs.streamlit.io/develop/api-reference/data/st.column_config/st.column_config.progresscolumn
+    """
+    allocation = risk_df[["name", "value", "weight"]].copy()
+    allocation = allocation[allocation["value"] > 0].reset_index(drop=True)
+    if allocation.empty:
+        return
+
+    colors = [CHART_PALETTE[i % len(CHART_PALETTE)] for i in range(len(allocation))]
+    color_by_name = dict(zip(allocation["name"], colors))
+
+    with st.container(border=True):
+        st.markdown(f"**Portafoglio** · € {summary['portfolio_value']:,.0f}")
+
+        segmented_bar = alt.Chart(allocation).mark_bar(cornerRadius=6, height=18).encode(
+            x=alt.X("value:Q", stack="normalize", axis=None, title=None),
+            color=alt.Color(
+                "name:N",
+                scale=alt.Scale(domain=list(allocation["name"]), range=colors),
+                legend=None,
+            ),
+            order=alt.Order("value:Q", sort="descending"),
+            tooltip=[
+                alt.Tooltip("name:N", title="Asset"),
+                alt.Tooltip("weight:Q", title="Peso (%)", format=".1f"),
+            ],
+        ).properties(height=28)
+        st.altair_chart(segmented_bar, width="stretch", theme=None)
+
+        legend_html = " &nbsp;&nbsp; ".join(
+            f"<span style='color:{color_by_name[row.name_]}'>●</span> {row.name_} "
+            f"<span style='color:#9AA1AE;'>{row.weight:.0f}%</span>"
+            for row in allocation.rename(columns={"name": "name_"}).itertuples()
+        )
+        st.markdown(f"<div style='font-size:0.85rem;'>{legend_html}</div>", unsafe_allow_html=True)
+        st.write("")
+
+        table = allocation.rename(columns={"name": "Nome", "weight": "Peso", "value": "Valore"})
+        st.dataframe(
+            table[["Nome", "Peso", "Valore"]],
+            column_config={
+                "Peso": st.column_config.ProgressColumn(
+                    "Peso", format="%.1f%%", min_value=0, max_value=100
+                ),
+                "Valore": st.column_config.NumberColumn("Valore", format="€ %.0f"),
+            },
+            hide_index=True,
+            width="stretch",
+        )
+
+
 def render_risk_gauge() -> None:
     """Gauge circolare (donut) del punteggio di rischio 0-100.
 
@@ -315,46 +409,12 @@ dashboard_tab, montecarlo_tab, risk_tab = st.tabs(
 )
 
 with dashboard_tab:
-    render_kpis()
+    render_hero_card()
     st.subheader("Portafoglio")
     if risk_df.empty:
         st.info("Il portafoglio è vuoto. Aggiungi un ETF, un'obbligazione tramite ISIN o inserisci un asset nella tabella.")
     else:
-        chart_col, table_col = st.columns([1, 1.4])
-        with chart_col:
-            with st.container(border=True):
-                st.markdown("**Allocazione per asset**")
-                allocation = st.session_state.assets[["name", "value"]].copy()
-                allocation["value"] = pd.to_numeric(allocation["value"], errors="coerce").fillna(0.0)
-                allocation["value"] = allocation["value"].round(2)
-                allocation = allocation[allocation["value"] > 0].rename(
-                    columns={"name": "asset", "value": "value_eur"}
-                )
-                pie = alt.Chart(allocation).mark_arc(innerRadius=105).encode(
-                    theta=alt.Theta("value_eur:Q", title="Valore"),
-                    color=alt.Color(
-                        "asset:N",
-                        scale=alt.Scale(range=CHART_PALETTE),
-                        legend=alt.Legend(title=None, labelLimit=0, columns=1),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("asset:N", title="Asset"),
-                        alt.Tooltip("value_eur:Q", title="Valore (€)", format=",.2f"),
-                    ],
-                ).properties(height=360)
-                st.altair_chart(pie, width="stretch", theme=None)
-        with table_col:
-            with st.container(border=True):
-                st.markdown("**Asset nel portafoglio**")
-                portfolio_table = risk_df[["name", "value", "weight", "ticker"]].rename(
-                    columns={
-                        "name": "Asset",
-                        "value": "Valore (€)",
-                        "weight": "Allocazione (%)",
-                        "ticker": "Ticker",
-                    }
-                )
-                st.dataframe(portfolio_table, hide_index=True, width="stretch")
+        render_allocation_card()
 
 with montecarlo_tab:
     st.subheader("Simulazione Monte Carlo")
