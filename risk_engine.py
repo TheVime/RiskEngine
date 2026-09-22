@@ -715,15 +715,17 @@ def simulate_compound_growth(
 
     contribution_frequency = str(contribution_frequency).lower()
     if contribution_frequency.startswith("month"):
-        contribution_periods = 12
+        contribution_amount = contribution_per_year / 12.0
+        contribution_interval = 1
     elif contribution_frequency.startswith("quarter"):
-        contribution_periods = 4
+        contribution_amount = contribution_per_year / 4.0
+        contribution_interval = max(1, int(round(compounding_periods / 4.0)))
     else:
-        contribution_periods = 1
+        contribution_amount = contribution_per_year
+        contribution_interval = compounding_periods
 
     period_rate = annual_rate / compounding_periods
     total_periods = int(round(years * compounding_periods))
-    contribution_per_period = contribution_per_year / contribution_periods
 
     balance = principal
     total_contributions = principal
@@ -731,19 +733,21 @@ def simulate_compound_growth(
 
     for period_index in range(1, total_periods + 1):
         balance *= 1.0 + period_rate
-        if contribution_per_period > 0:
-            balance += contribution_per_period
-            total_contributions += contribution_per_period
+
+        if contribution_amount > 0 and period_index % contribution_interval == 0:
+            balance += contribution_amount
+            total_contributions += contribution_amount
 
         if period_index % compounding_periods == 0 or period_index == total_periods:
             year_number = period_index / compounding_periods
+            year_label = int(np.ceil(year_number)) if year_number > 0 else 0
             gross_gain = max(balance - total_contributions, 0.0)
             tax_due = gross_gain * tax_rate
             after_tax_value = balance - tax_due
-            real_value = after_tax_value / ((1.0 + inflation_rate) ** year_number) if year_number > 0 else after_tax_value
+            real_value = after_tax_value / ((1.0 + inflation_rate) ** max(year_number, 0.0)) if year_number > 0 else after_tax_value
             yearly_history.append(
                 {
-                    "year": float(year_number),
+                    "year": int(year_label),
                     "nominal_value": balance,
                     "after_tax_value": after_tax_value,
                     "real_value_after_inflation": real_value,

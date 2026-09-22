@@ -290,3 +290,30 @@ def test_compound_growth_allows_negative_rates_and_fractional_years():
     )
     expected = 10000.0 * (1.0 + 0.08 / 12.0) ** (2.5 * 12.0)
     assert math.isclose(fractional_years["final_value_nominal"], expected, rel_tol=1e-6)
+
+
+def test_annual_contribution_is_not_added_monthly():
+    annual = simulate_compound_growth(
+        principal=10000.0,
+        annual_rate=0.0,
+        years=2.0,
+        contribution_per_year=1200.0,
+        contribution_frequency="annual",
+        inflation_rate=0.0,
+        tax_rate=0.0,
+        compounding_periods=12,
+    )
+    monthly = simulate_compound_growth(
+        principal=10000.0,
+        annual_rate=0.0,
+        years=2.0,
+        contribution_per_year=1200.0,
+        contribution_frequency="monthly",
+        inflation_rate=0.0,
+        tax_rate=0.0,
+        compounding_periods=12,
+    )
+
+    assert annual["final_value_nominal"] > 10000.0
+    assert monthly["final_value_nominal"] > annual["final_value_nominal"]
+    assert annual["total_contributions"] == 10000.0 + 1200.0 + 1200.0

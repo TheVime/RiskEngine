@@ -633,7 +633,7 @@ else:
             sim_principal = st.number_input("Capitale iniziale (€)", min_value=0.0, value=10000.0, step=500.0)
             sim_annual_rate = st.number_input("Rendimento annuo (%)", -50.0, 50.0, 6.0, 0.5) / 100.0
         with compound_col2:
-            sim_years = st.number_input("Anni", min_value=1.0, value=10.0, step=1.0)
+            sim_years = st.number_input("Anni", min_value=1, value=10, step=1)
             sim_contribution = st.number_input("Contributo annuale (€)", min_value=0.0, value=1200.0, step=100.0)
         with compound_col3:
             sim_inflation = st.number_input("Inflazione (%)", 0.0, 20.0, 2.0, 0.1) / 100.0
