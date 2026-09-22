@@ -1,26 +1,39 @@
 from __future__ import annotations
 
-"""
-CHANGELOG
----------
-v1.1 - 2026-09-22
-    - Tema scuro applicato via .streamlit/config.toml (vedi quel file per
-      i colori) invece che con CSS custom, cosi' i colori restano coerenti
-      anche nei widget nativi di Streamlit e nei grafici Altair (che
-      ereditano automaticamente la palette del tema quando non si passa
-      theme=None a st.altair_chart). Vedi:
-      https://docs.streamlit.io/develop/concepts/configuration/theming
-    - Aggiunto render_risk_gauge(): gauge circolare del punteggio di
-      rischio (0-100), colorato in base alla fascia di rischio, per dare
-      un colpo d'occhio immediato oltre al testo di render_risk_advice().
-    - Aggiunta sezione "Frontiera efficiente (simulata)" nel tab Rischio:
-      nuvola di portafogli generati con simulate_efficient_frontier() e
-      marcatore del portafoglio attuale, per confrontare visivamente
-      rischio/rendimento con altre allocazioni possibili sugli stessi asset.
-    - CHART_PALETTE centralizza i colori categoriali usati nei grafici che
-      impostano esplicitamente theme=None (es. il donut di allocazione),
-      cosi' restano coerenti con chartCategoricalColors del tema anche li'.
-"""
+# CHANGELOG
+# ---------
+# v1.1 - 2026-09-22
+#     - Tema scuro applicato via .streamlit/config.toml (vedi quel file per
+#       i colori) invece che con CSS custom, cosi' i colori restano coerenti
+#       anche nei widget nativi di Streamlit e nei grafici Altair (che
+#       ereditano automaticamente la palette del tema quando non si passa
+#       theme=None a st.altair_chart). Vedi:
+#       https://docs.streamlit.io/develop/concepts/configuration/theming
+#     - Aggiunto render_risk_gauge(): gauge circolare del punteggio di
+#       rischio (0-100), colorato in base alla fascia di rischio, per dare
+#       un colpo d'occhio immediato oltre al testo di render_risk_advice().
+#     - Aggiunta sezione "Frontiera efficiente (simulata)" nel tab Rischio:
+#       nuvola di portafogli generati con simulate_efficient_frontier() e
+#       marcatore del portafoglio attuale, per confrontare visivamente
+#       rischio/rendimento con altre allocazioni possibili sugli stessi asset.
+#     - CHART_PALETTE centralizza i colori categoriali usati nei grafici che
+#       impostano esplicitamente theme=None (es. il donut di allocazione),
+#       cosi' restano coerenti con chartCategoricalColors del tema anche li'.
+# v1.1.1 - 2026-09-22
+#     - Fix: il changelog sopra era scritto come stringa "bandone" (bare
+#       string) invece che come commento. Streamlit ha una funzione
+#       chiamata "magic": qualunque espressione non assegnata a una
+#       variabile, nello script principale lanciato con `streamlit run`,
+#       viene automaticamente passata a st.write() e mostrata in pagina.
+#       Una docstring piazzata dopo `from __future__ import annotations`
+#       non conta come vera docstring del modulo (che deve essere la primissima
+#       istruzione del file) quindi veniva "catturata" dalla magic e
+#       renderizzata come testo markdown in cima alla pagina, sopra
+#       st.title(). Per questo sembrava che grafici e tabelle si fossero
+#       spostati: in realtà erano sempre al loro posto (tab Dashboard),
+#       solo spinti più in basso da questo blocco di testo indesiderato.
+#       Ora è un commento `#`, quindi non viene mai eseguito né mostrato.
+#       Doc ufficiale sulla magic: https://docs.streamlit.io/develop/api-reference/write-magic/magic
 
 import altair as alt
 import numpy as np
