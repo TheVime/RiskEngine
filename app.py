@@ -119,97 +119,87 @@ if "assets" not in st.session_state:
 st.title("RiskEngine")
 st.caption("Analisi del rischio di portafoglio con dati storici reali e simulazioni quantitative")
 
-NAV_ITEMS = {
-    "Dashboard": "⌂",
-    "Simulazione Monte Carlo": "◌",
-    "Rischio del portafoglio": "◈",
-}
-if "active_page" not in st.session_state:
-    st.session_state.active_page = "Dashboard"
-
-st.markdown("""
-<style>
-section[data-testid="stSidebar"] { width: 88px !important; min-width: 88px !important; }
-section[data-testid="stSidebar"] > div { padding: 1.15rem .55rem; }
-section[data-testid="stSidebar"] [data-testid="stRadio"] > label { display:none; }
-section[data-testid="stSidebar"] [role="radiogroup"] { gap:.55rem; }
-section[data-testid="stSidebar"] [role="radio"] { position:relative; width:48px; height:48px; min-height:48px; margin:0 auto; padding:0 !important; border-radius:15px; justify-content:center; transition:transform .18s ease, background .18s ease; }
-section[data-testid="stSidebar"] [role="radio"]:hover { transform:translateY(-2px); }
-section[data-testid="stSidebar"] [role="radio"][aria-checked="true"] { background:rgba(91,141,239,.14); }
-section[data-testid="stSidebar"] [role="radio"][aria-checked="true"]::after { content:""; position:absolute; right:-7px; top:9px; width:4px; height:30px; border-radius:0 5px 5px 0; background:#5B8DEF; animation:bookmark-slide .26s cubic-bezier(.22,.8,.24,1); }
-section[data-testid="stSidebar"] [role="radio"] > div:first-child { display:none; }
-section[data-testid="stSidebar"] [role="radio"] p { margin:0; font-size:1.45rem; line-height:1; }
-@keyframes bookmark-slide { from { opacity:0; transform:translateY(-14px) scaleY(.55); } to { opacity:1; transform:translateY(0) scaleY(1); } }
-</style>
-""", unsafe_allow_html=True)
 with st.sidebar:
-    selected = st.radio("Sezione", list(NAV_ITEMS), format_func=lambda x: NAV_ITEMS[x], label_visibility="collapsed", key="main_navigation")
-    if selected != st.session_state.active_page:
-        st.session_state.active_page = selected
-        st.rerun()
+    st.header("Impostazioni")
+    risk_free_rate = st.number_input(
+        "Tasso risk-free (%)", min_value=0.0, max_value=20.0, value=2.5, step=0.1
+    ) / 100.0
+    avg_correlation = st.slider("Correlazione media tra asset", 0.0, 1.0, 0.35, 0.05)
+    st.caption("Il tema dell'app si gestisce dal menu ⋮ di Streamlit.")
+    with st.expander("Scenario narrativo", expanded=False):
+        narrative_enabled = st.checkbox("Includi scenario narrativo", value=False)
+        narrative_scenario = None
+        if narrative_enabled:
+            narrative_probability = st.slider("Probabilità stimata", 0.0, 1.0, 0.25, 0.05)
+            narrative_severity = st.slider(
+                "Perdita se lo scenario si verifica (%)", -100.0, 0.0, -50.0, 5.0
+            )
+            narrative_scenario = {
+                "probability": narrative_probability,
+                "severity": narrative_severity / 100.0,
+            }
 
-risk_free_rate = st.session_state.get("risk_free_rate", 0.025)
-avg_correlation = st.session_state.get("avg_correlation", 0.35)
-narrative_scenario = st.session_state.get("narrative_scenario")
 
-if st.session_state.active_page == "Dashboard":
-    with st.container(border=True):
-        st.subheader("Aggiungi ETF o obbligazione")
-        st.caption("Cerca uno strumento europeo inserendo il suo codice ISIN.")
-        with st.form("isin_form", clear_on_submit=True):
-            isin_input = st.text_input("Codice ISIN")
-            isin_submitted = st.form_submit_button("Cerca e aggiungi", type="primary")
-        if isin_submitted:
-            if not isin_input.strip():
-                st.warning("Inserisci un codice ISIN.")
+with st.container(border=True):
+    st.subheader("Aggiungi ETF o obbligazione")
+    st.caption("Cerca uno strumento europeo inserendo il suo codice ISIN.")
+    with st.form("isin_form", clear_on_submit=True):
+        isin_input = st.text_input("Codice ISIN", label_visibility="visible")
+        isin_submitted = st.form_submit_button("Cerca e aggiungi", type="primary")
+
+    if isin_submitted:
+        if not isin_input.strip():
+            st.warning("Inserisci un codice ISIN.")
+        else:
+            match = lookup_isin_to_asset(isin_input)
+            if not match:
+                st.warning("Nessun risultato trovato. Prova un ISIN europeo valido.")
             else:
-                match = lookup_isin_to_asset(isin_input)
-                if not match:
-                    st.warning("Nessun risultato trovato. Prova un ISIN europeo valido.")
-                else:
-                    current_assets = st.session_state.assets.copy()
-                    current_assets.loc[len(current_assets)] = {
-                        "name": match["name"], "ticker": match["ticker"], "value": match["value"],
-                        "expected_return": match["expected_return"] * 100, "volatility": match["volatility"] * 100,
-                        "beta": match["beta"], "narrative_exposure": 0.0,
-                    }
-                    st.session_state.assets = current_assets
-                    st.success(f"Aggiunto {match['name']} ({match['ticker']}).")
-    edited_assets = st.data_editor(st.session_state.assets, column_config={
+                current_assets = st.session_state.assets.copy()
+                current_assets.loc[len(current_assets)] = {
+                    "name": match["name"],
+                    "ticker": match["ticker"],
+                    "value": match["value"],
+                    "expected_return": match["expected_return"] * 100,
+                    "volatility": match["volatility"] * 100,
+                    "beta": match["beta"],
+                    "narrative_exposure": 0.0,
+                }
+                st.session_state.assets = current_assets
+                st.success(f"Aggiunto {match['name']} ({match['ticker']}).")
+
+
+edited_assets = st.data_editor(
+    st.session_state.assets,
+    column_config={
         "name": st.column_config.TextColumn("Asset", width="large"),
         "ticker": st.column_config.TextColumn("Ticker", width="medium"),
         "value": st.column_config.NumberColumn("Valore (€)", min_value=0, format="€ %d"),
-        "expected_return": st.column_config.NumberColumn("Rendimento atteso (%)", min_value=-100.0, max_value=100.0, step=0.1),
-        "volatility": st.column_config.NumberColumn("Volatilità (%)", min_value=0.0, max_value=100.0, step=0.1),
+        "expected_return": st.column_config.NumberColumn(
+            "Rendimento atteso (%)", min_value=-100.0, max_value=100.0, step=0.1
+        ),
+        "volatility": st.column_config.NumberColumn(
+            "Volatilità (%)", min_value=0.0, max_value=100.0, step=0.1
+        ),
         "beta": st.column_config.NumberColumn("Beta", min_value=0.0, max_value=5.0, step=0.1),
-        "narrative_exposure": st.column_config.NumberColumn("Esposizione tema (%)", min_value=0.0, max_value=100.0, step=5.0),
-    }, num_rows="dynamic", hide_index=True, width="stretch")
-    st.session_state.assets = edited_assets
+        "narrative_exposure": st.column_config.NumberColumn(
+            "Esposizione tema (%)", min_value=0.0, max_value=100.0, step=5.0
+        ),
+    },
+    num_rows="dynamic",
+    hide_index=True,
+    width="stretch",
+)
+st.session_state.assets = edited_assets
 
-elif st.session_state.active_page == "Rischio del portafoglio":
-    with st.container(border=True):
-        st.subheader("Parametri di rischio")
-        c1, c2 = st.columns(2)
-        with c1:
-            risk_free_rate = st.number_input("Tasso risk-free (%)", 0.0, 20.0, risk_free_rate * 100, 0.1, key="risk_free_rate_pct") / 100
-        with c2:
-            avg_correlation = st.slider("Correlazione media tra asset", 0.0, 1.0, avg_correlation, 0.05, key="avg_correlation")
-        narrative_enabled = st.checkbox("Includi scenario narrativo", narrative_scenario is not None, key="narrative_enabled")
-        if narrative_enabled:
-            c1, c2 = st.columns(2)
-            with c1:
-                narrative_probability = st.slider("Probabilità stimata", 0.0, 1.0, float((narrative_scenario or {}).get("probability", .25)), .05, key="narrative_probability")
-            with c2:
-                narrative_severity = st.slider("Perdita se lo scenario si verifica (%)", -100.0, 0.0, float((narrative_scenario or {}).get("severity", -.5))*100, 5.0, key="narrative_severity")
-            narrative_scenario = {"probability": narrative_probability, "severity": narrative_severity/100}
-        else:
-            narrative_scenario = None
-    st.session_state.risk_free_rate = risk_free_rate
-    st.session_state.avg_correlation = avg_correlation
-    st.session_state.narrative_scenario = narrative_scenario
 
 try:
-    portfolio = calculate_portfolio_metrics(st.session_state.assets, risk_free_rate=risk_free_rate, avg_correlation=avg_correlation, narrative_scenario=narrative_scenario)
+    portfolio = calculate_portfolio_metrics(
+        st.session_state.assets,
+        risk_free_rate=risk_free_rate,
+        avg_correlation=avg_correlation,
+        narrative_scenario=narrative_scenario,
+    )
 except ValueError as exc:
     st.warning(str(exc))
     st.stop()
@@ -414,7 +404,11 @@ def render_risk_formula() -> None:
     )
 
 
-if st.session_state.active_page == "Dashboard":
+dashboard_tab, montecarlo_tab, risk_tab = st.tabs(
+    ["Dashboard", "Simulazione Monte Carlo", "Rischio del portafoglio"]
+)
+
+with dashboard_tab:
     render_hero_card()
     st.subheader("Portafoglio")
     if risk_df.empty:
@@ -422,7 +416,7 @@ if st.session_state.active_page == "Dashboard":
     else:
         render_allocation_card()
 
-elif st.session_state.active_page == "Simulazione Monte Carlo":
+with montecarlo_tab:
     st.subheader("Simulazione Monte Carlo")
     st.caption("Genera scenari annuali usando rendimenti storici giornalieri, quando disponibili.")
     scenario_count = st.slider(
@@ -483,7 +477,7 @@ elif st.session_state.active_page == "Simulazione Monte Carlo":
             ).properties(height=360)
             st.altair_chart(histogram, width="stretch")
 
-elif st.session_state.active_page == "Rischio del portafoglio":
+with risk_tab:
     render_kpis()
     st.subheader("Profilo e consigli")
     render_risk_gauge()
