@@ -715,10 +715,10 @@ def simulate_compound_growth(
 
     contribution_frequency = str(contribution_frequency).lower()
     if contribution_frequency.startswith("month"):
-        contribution_amount = contribution_per_year / 12.0
+        contribution_amount = contribution_per_year
         contribution_interval = 1
     elif contribution_frequency.startswith("quarter"):
-        contribution_amount = contribution_per_year / 4.0
+        contribution_amount = contribution_per_year
         contribution_interval = max(1, int(round(compounding_periods / 4.0)))
     else:
         contribution_amount = contribution_per_year
