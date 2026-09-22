@@ -13,6 +13,17 @@ v1.1 - 2026-09-21
       narrative_scenario per integrare questo fattore nella volatilità e
       nel rendimento atteso del portafoglio, mantenendo il comportamento
       precedente invariato quando il parametro è omesso (None).
+
+v1.2 - 2026-09-22
+    - Aggiunta simulate_efficient_frontier(): genera N portafogli con pesi
+      casuali (distribuzione di Dirichlet) sugli stessi asset del
+      portafoglio corrente e ne calcola rendimento atteso, volatilità e
+      Sharpe ratio, usando la stessa formula di covarianza già impiegata
+      da _portfolio_volatility() ma vettorizzata con np.einsum per gestire
+      migliaia di portafogli in un'unica operazione. Serve ad alimentare
+      il grafico "frontiera efficiente" nella UI (nuvola di portafogli +
+      punto del portafoglio attuale), per mostrare visivamente se esistono
+      allocazioni con rendimento/rischio migliori a parità di asset.
 """
 
 from typing import Any, Iterable
@@ -520,6 +531,82 @@ def calculate_portfolio_metrics(
     }
 
     return summary
+
+
+def simulate_efficient_frontier(
+    asset_rows: Iterable[dict[str, Any]] | pd.DataFrame,
+    risk_free_rate: float = 0.02,
+    avg_correlation: float = DEFAULT_AVERAGE_CORRELATION,
+    num_portfolios: int = 3000,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Simulate random portfolios over the same assets to sketch an efficient frontier.
+
+    For each of ``num_portfolios`` random weight vectors (drawn from a symmetric
+    Dirichlet distribution, so weights are non-negative and sum to 1) we compute
+    the resulting expected return, volatility and Sharpe ratio, reusing the same
+    weighted-covariance formula as :func:`_portfolio_volatility` — a constant
+    average correlation off the diagonal, full variance on it — but fully
+    vectorized with :func:`numpy.einsum` instead of looping in Python, so a few
+    thousand portfolios are evaluated in a single pass.
+
+    This does not solve for the mathematically optimal (mean-variance) frontier;
+    it approximates it by dense random sampling, which is enough to visualize
+    where the current allocation sits relative to other achievable combinations
+    of the same assets. For the classical (Markowitz) formulation this
+    approximates, see https://en.wikipedia.org/wiki/Modern_portfolio_theory
+    and, for the Dirichlet sampling approach, https://numpy.org/doc/stable/reference/random/generated/numpy.random.Generator.dirichlet.html
+    """
+    if isinstance(asset_rows, pd.DataFrame):
+        df = asset_rows.copy()
+    else:
+        df = pd.DataFrame(list(asset_rows))
+
+    for column in ["name", "value", "expected_return", "volatility"]:
+        if column not in df.columns:
+            df[column] = 0.0
+
+    df["name"] = df["name"].fillna("Asset").astype(str).str.strip()
+    df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
+    df["expected_return"] = pd.to_numeric(df["expected_return"], errors="coerce").fillna(0.0).apply(_normalize_percentage)
+    df["volatility"] = pd.to_numeric(df["volatility"], errors="coerce").fillna(0.0).apply(_normalize_percentage)
+    df = df[(df["name"] != "") & (df["value"] > 0)].copy()
+
+    if len(df) < 2 or num_portfolios <= 0:
+        return pd.DataFrame(columns=["expected_return", "volatility", "sharpe"])
+
+    expected_returns = df["expected_return"].to_numpy(dtype=float)
+    volatilities = df["volatility"].to_numpy(dtype=float)
+
+    # Stessa struttura di covarianza di _portfolio_volatility(): correlazione
+    # media costante fuori dalla diagonale, varianza piena sulla diagonale.
+    correlation_matrix = np.full((len(df), len(df)), avg_correlation, dtype=float)
+    np.fill_diagonal(correlation_matrix, 1.0)
+    covariance_matrix = correlation_matrix * np.outer(volatilities, volatilities)
+
+    rng = np.random.default_rng(seed)
+    random_weights = rng.dirichlet(np.ones(len(df)), size=num_portfolios)
+
+    portfolio_returns = random_weights @ expected_returns
+    # einsum calcola, per ogni riga i di random_weights, w_i @ Cov @ w_i^T
+    # in un colpo solo, senza costruire una matrice (num_portfolios x num_portfolios).
+    portfolio_variances = np.einsum("ij,jk,ik->i", random_weights, covariance_matrix, random_weights)
+    portfolio_volatilities = np.sqrt(np.clip(portfolio_variances, 0.0, None))
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sharpe_ratios = np.where(
+            portfolio_volatilities > 0,
+            (portfolio_returns - risk_free_rate) / portfolio_volatilities,
+            0.0,
+        )
+
+    return pd.DataFrame(
+        {
+            "expected_return": portfolio_returns,
+            "volatility": portfolio_volatilities,
+            "sharpe": sharpe_ratios,
+        }
+    )
 
 
 def calculate_bond_metrics(
