@@ -4,7 +4,7 @@ services:
   riskengine:
     image: riskengine:github
     build:
-      context: https://github.com/TheVime/RiskEngine.git#main
+      context: https://github.com/TheVime/RiskEngine.git#develop
       dockerfile: Dockerfile
     container_name: riskengine
     ports:
