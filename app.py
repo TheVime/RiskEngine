@@ -120,12 +120,21 @@ st.title("RiskEngine")
 st.caption("Analisi del rischio di portafoglio con dati storici reali e simulazioni quantitative")
 
 with st.sidebar:
-    st.header("Impostazioni")
+    st.header("Navigazione")
+    current_section = st.radio(
+        "Sezione",
+        ["Dashboard", "Monte Carlo", "Rischio"],
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    st.divider()
+    st.caption("Parametri globali")
     risk_free_rate = st.number_input(
         "Tasso risk-free (%)", min_value=0.0, max_value=20.0, value=2.5, step=0.1
     ) / 100.0
     avg_correlation = st.slider("Correlazione media tra asset", 0.0, 1.0, 0.35, 0.05)
-    st.caption("Il tema dell'app si gestisce dal menu ⋮ di Streamlit.")
+
     with st.expander("Scenario narrativo", expanded=False):
         narrative_enabled = st.checkbox("Includi scenario narrativo", value=False)
         narrative_scenario = None
@@ -414,11 +423,7 @@ def render_risk_formula() -> None:
     )
 
 
-dashboard_tab, montecarlo_tab, risk_tab = st.tabs(
-    ["Dashboard", "Simulazione Monte Carlo", "Rischio del portafoglio"]
-)
-
-with dashboard_tab:
+if current_section == "Dashboard":
     render_hero_card()
     st.subheader("Portafoglio")
     if risk_df.empty:
@@ -426,7 +431,7 @@ with dashboard_tab:
     else:
         render_allocation_card()
 
-with montecarlo_tab:
+elif current_section == "Monte Carlo":
     st.subheader("Simulazione Monte Carlo")
     st.caption("Genera scenari annuali usando rendimenti storici giornalieri, quando disponibili.")
     scenario_count = st.slider(
@@ -487,7 +492,7 @@ with montecarlo_tab:
             ).properties(height=360)
             st.altair_chart(histogram, width="stretch")
 
-with risk_tab:
+else:
     render_kpis()
     st.subheader("Profilo e consigli")
     render_risk_gauge()

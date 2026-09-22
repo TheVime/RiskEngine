@@ -707,7 +707,7 @@ def simulate_compound_growth(
 ) -> dict[str, float | list[dict[str, float]]]:
     """Project a compounded investment value adjusted for taxes and inflation."""
     principal = float(principal)
-    annual_rate = abs(float(_normalize_percentage(annual_rate)))
+    annual_rate = float(_normalize_percentage(annual_rate))
     inflation_rate = abs(float(_normalize_percentage(inflation_rate)))
     tax_rate = min(max(float(tax_rate), 0.0), 1.0)
     years = max(float(years), 0.0)
@@ -728,27 +728,27 @@ def simulate_compound_growth(
     balance = principal
     total_contributions = principal
     yearly_history: list[dict[str, float]] = []
-    for year_idx in range(1, int(max(years, 1.0)) + 1):
-        year_end_balance = balance
-        for _ in range(compounding_periods):
-            year_end_balance *= 1.0 + period_rate
-            if contribution_per_period > 0:
-                year_end_balance += contribution_per_period
-                total_contributions += contribution_per_period
 
-        gross_gain = max(year_end_balance - total_contributions, 0.0)
-        tax_due = gross_gain * tax_rate
-        after_tax_value = year_end_balance - tax_due
-        real_value = after_tax_value / ((1.0 + inflation_rate) ** year_idx) if year_idx > 0 else after_tax_value
-        yearly_history.append(
-            {
-                "year": float(year_idx),
-                "nominal_value": year_end_balance,
-                "after_tax_value": after_tax_value,
-                "real_value_after_inflation": real_value,
-            }
-        )
-        balance = year_end_balance
+    for period_index in range(1, total_periods + 1):
+        balance *= 1.0 + period_rate
+        if contribution_per_period > 0:
+            balance += contribution_per_period
+            total_contributions += contribution_per_period
+
+        if period_index % compounding_periods == 0 or period_index == total_periods:
+            year_number = period_index / compounding_periods
+            gross_gain = max(balance - total_contributions, 0.0)
+            tax_due = gross_gain * tax_rate
+            after_tax_value = balance - tax_due
+            real_value = after_tax_value / ((1.0 + inflation_rate) ** year_number) if year_number > 0 else after_tax_value
+            yearly_history.append(
+                {
+                    "year": float(year_number),
+                    "nominal_value": balance,
+                    "after_tax_value": after_tax_value,
+                    "real_value_after_inflation": real_value,
+                }
+            )
 
     if years <= 0:
         yearly_history = []

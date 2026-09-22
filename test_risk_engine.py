@@ -265,3 +265,28 @@ def test_bond_metrics_and_compound_growth_are_reasonable():
     assert growth["final_value_nominal"] > growth["principal"]
     assert growth["real_value_after_inflation"] > 0.0
     assert growth["after_tax_value"] > 0.0
+
+
+def test_compound_growth_allows_negative_rates_and_fractional_years():
+    negative_growth = simulate_compound_growth(
+        principal=10000.0,
+        annual_rate=-0.10,
+        years=5.0,
+        contribution_per_year=0.0,
+        inflation_rate=0.02,
+        tax_rate=0.0,
+        compounding_periods=12,
+    )
+    assert negative_growth["final_value_nominal"] < negative_growth["principal"]
+
+    fractional_years = simulate_compound_growth(
+        principal=10000.0,
+        annual_rate=0.08,
+        years=2.5,
+        contribution_per_year=0.0,
+        inflation_rate=0.0,
+        tax_rate=0.0,
+        compounding_periods=12,
+    )
+    expected = 10000.0 * (1.0 + 0.08 / 12.0) ** (2.5 * 12.0)
+    assert math.isclose(fractional_years["final_value_nominal"], expected, rel_tol=1e-6)
