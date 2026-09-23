@@ -1,92 +1,105 @@
-# RiskEngine
+# RiskEngine (porting C++)
 
-RiskEngine is a lightweight Streamlit application for analysing investment portfolio risk.
+Porting in C++ del progetto Python [TheVime/RiskEngine](https://github.com/TheVime/RiskEngine):
+un'app di analisi del rischio di portafoglio (rendimento atteso, volatilità, beta, Sharpe,
+scenari Monte Carlo, frontiera efficiente simulata, calcolo obbligazioni e crescita composta).
 
-## Features
+## Struttura del progetto
 
-- Add and edit assets with value, ticker, expected return, volatility and beta
-- Search for and add European ETFs and other listed instruments by ISIN
-- Calculate portfolio value, expected return, volatility, beta and Sharpe ratio
-- Display each asset's contribution to portfolio risk
-- Estimate bond yield to maturity, Macaulay duration, modified duration and convexity
-- Simulate compound growth adjusted for inflation and taxes
-- Run historical portfolio scenarios using real daily market data from Yahoo Finance
-
-## Run locally
-
-Install Python 3.11 or newer, clone the repository and open a terminal in the project directory.
-
-### Windows PowerShell
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
+```
+RiskEngineCpp/
+├── CMakeLists.txt
+├── include/risk_engine/
+│   ├── types.hpp        # struct (Asset, PortfolioMetrics, BondMetrics, ...)
+│   ├── risk_engine.hpp  # firme delle funzioni di calcolo
+│   └── market_data.hpp  # firme del fetch dati (ISIN lookup, storico prezzi)
+├── src/
+│   ├── risk_engine.cpp  # porting di risk_engine.py (motore di calcolo)
+│   ├── market_data.cpp  # porting della parte yfinance/requests
+│   └── main.cpp         # porting "a schermo" di app.py (dashboard desktop)
+└── tests/
+    └── test_risk_engine.cpp  # porting di test_risk_engine.py (doctest)
 ```
 
-### Ubuntu or macOS
+## Corrispondenza con il progetto Python
+
+| Python (originale)                          | C++ (questo progetto)                          |
+|----------------------------------------------|-------------------------------------------------|
+| `risk_engine.py` (calcolo, NumPy/Pandas)      | `src/risk_engine.cpp` — porting 1:1              |
+| `yfinance` + `requests` (dati di mercato)     | `src/market_data.cpp` — libcurl + nlohmann/json  |
+| `app.py` (interfaccia Streamlit)              | `src/main.cpp` — dashboard Dear ImGui + ImPlot   |
+| `test_risk_engine.py` (pytest)                | `tests/test_risk_engine.cpp` — doctest           |
+
+**Streamlit non ha un equivalente diretto in C++**, quindi la UI è stata ricostruita da zero
+come applicazione desktop (finestra nativa via GLFW + OpenGL), non come pagina web. La
+corrispondenza è per sezione/funzione (stessi tab Dashboard / Monte Carlo / Rischio, stessi
+controlli), non pixel-per-pixel. Allo stesso modo `yfinance` (libreria Python senza
+equivalente C++) è stata sostituita da chiamate dirette agli endpoint pubblici di Yahoo
+Finance via [libcurl](https://curl.se/libcurl/c/libcurl-easy.html), con parsing JSON via
+[nlohmann/json](https://json.nlohmann.me/).
+
+Differenze intenzionali rispetto all'originale (documentate anche nei commenti del codice):
+
+- il generatore di numeri casuali è `std::mt19937_64` invece del PCG64 di NumPy: la
+  riproducibilità a parità di seed vale all'interno di questo programma, non byte-per-byte
+  rispetto all'output Python;
+- il beta di un asset trovato via ricerca ISIN è impostato a `1.0` di default: l'endpoint
+  di ricerca di Yahoo (`/v1/finance/search`) non include un beta pronto all'uso come fa
+  `yfinance`, e l'endpoint che lo fornirebbe (`quoteSummary`) richiede un token di
+  autenticazione ("crumb") lato Yahoo;
+- i due test Python che simulano le risposte di rete con `monkeypatch` sono sostituiti da
+  un unico test sulla mappa di fallback locale (ETF europei hardcoded), che non richiede
+  rete — testare il vero fetch da Yahoo richiederebbe un test di integrazione online.
+
+## Dipendenze
+
+Scaricate automaticamente da CMake (`FetchContent`), quindi non servono passi manuali:
+
+- [nlohmann/json](https://github.com/nlohmann/json) — parsing JSON
+- [doctest](https://github.com/doctest/doctest) — framework di unit test
+- [GLFW](https://www.glfw.org/) — finestra e contesto OpenGL
+- [Dear ImGui](https://github.com/ocornut/imgui) — widget della UI
+- [ImPlot](https://github.com/epezent/implot) — grafici (barre, scatter, gauge a torta)
+
+Da installare a livello di sistema:
+
+- Un compilatore C++20 e CMake ≥ 3.20
+- **libcurl** (header di sviluppo): `libcurl4-openssl-dev` su Debian/Ubuntu
+- Per la GUI: librerie di sviluppo OpenGL/X11 (su Debian/Ubuntu:
+  `libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`)
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
+# Debian/Ubuntu
+sudo apt-get install -y build-essential cmake libcurl4-openssl-dev \
+    libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 ```
 
-Open http://localhost:8501 in your browser.
-
-If Ubuntu does not provide the virtual-environment module, install it first:
+## Build
 
 ```bash
-sudo apt update
-sudo apt install -y python3-venv
+mkdir build && cd build
+cmake ..
+cmake --build . -j
 ```
 
-## Run with Docker
-
-### Build from a local checkout
+Se le librerie di sviluppo OpenGL/X11 non sono disponibili (es. build headless/CI), la GUI
+può essere disattivata; libreria e test si costruiscono comunque:
 
 ```bash
-docker build -t riskengine .
-docker run -d \
-  --name riskengine \
-  --restart unless-stopped \
-  -p 8501:8501 \
-  riskengine
+cmake -DRISKENGINE_BUILD_GUI=OFF ..
 ```
 
-### Build automatically from GitHub with Docker Compose
-
-From any directory containing the `docker-compose.yml` file:
+## Eseguire
 
 ```bash
-docker compose up --build -d
+./build/risk_engine_tests   # unit test (doctest)
+./build/risk_engine_gui     # dashboard desktop (richiede un ambiente grafico)
 ```
 
-The Compose configuration uses `https://github.com/TheVime/RiskEngine.git#main`
-as its build context. Docker therefore downloads the latest `main` branch before
-building the image. The application is then available at:
+## Verificato in questo ambiente
 
-```text
-http://localhost:8501
-```
-
-The Compose setup also:
-
-- restarts the container automatically unless it is manually stopped
-- exposes port `8501`
-- stores the `/data` volume in a persistent Docker volume named `riskengine_data`
-
-Useful Compose commands:
-
-```bash
-docker compose logs -f
-docker compose ps
-docker compose restart
-docker compose down
-```
-
-The application uses historical market data when available. Yahoo Finance can
-occasionally rate-limit or fail to identify an instrument; in that case the app
-uses its configured fallback logic or the assumptions entered by the user.
+Il progetto è stato compilato e i test sono stati eseguiti in questo ambiente sandbox
+(senza display grafico): libreria, test (16/16 test superati) e binario `risk_engine_gui`
+compilano ed eseguono il link senza errori. Il rendering effettivo della finestra
+non è stato verificato qui per assenza di un server grafico (X11/Wayland) — va controllato
+su una macchina con ambiente desktop.
